@@ -88,6 +88,14 @@ class TestCompareTrajectories:
         assert v.verdict == TRAJ_INSUFFICIENT
         assert v.p_value is None
 
+    def test_small_samples_cannot_fire(self):
+        # n=3 per side: C(6,3)=20 group assignments — the permutation test's
+        # smallest reachable p is ~0.1, so even a total change stays
+        # WITHIN_NOISE. Documented small-sample behaviour, not a bug.
+        v = compare_trajectories([("a", "b")] * 3, [("x", "y")] * 3)
+        assert v.verdict == TRAJ_WITHIN_NOISE
+        assert v.p_value > 0.05
+
     def test_permutation_deterministic(self):
         a = [("x", "y"), ("x", "z")] * 3
         b = [("x", "z"), ("x", "y")] * 3

@@ -171,6 +171,11 @@ def compare_trajectories(runs_a: Sequence[Sequence[str]],
     Same dual gate as the battery: mean cross disagreement must exceed the
     noise floor (the noisier side's mean per-step flip rate) AND the
     permutation p-value must be <= alpha.
+
+    Small-sample honesty: with ~3 or fewer runs per side the permutation
+    test cannot reach p <= 0.05 (too few distinct group assignments), so
+    REGRESSION cannot fire even on a total behaviour change. Collect more
+    runs rather than raising alpha.
     """
     if len(runs_a) < 2 or len(runs_b) < 2:
         return TrajVerdict(n_a=len(runs_a), n_b=len(runs_b))
