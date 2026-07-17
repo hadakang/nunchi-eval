@@ -97,6 +97,50 @@ def load_snapshot(path: Path) -> EvalViewSnapshot:
     )
 
 
+def load_trace_runs(source: Path) -> List[Tuple[str, ...]]:
+    """Load trajectory runs (tool-name sequences) from ExecutionTrace JSONs.
+
+    ``source`` is either a directory (every ``*.json`` inside = one run,
+    sorted by filename) or a single file containing one ExecutionTrace
+    object or a list of them. Only ``steps[].tool_name`` is used.
+    """
+    source = Path(source)
+    if source.is_dir():
+        files = sorted(source.glob("*.json"))
+        if not files:
+            raise FileNotFoundError(f"{source}: no *.json trace files")
+        raw_traces = []
+        for f in files:
+            raw_traces.extend(_parse_traces(f))
+        return [_tool_sequence(t, src=str(source)) for t in raw_traces]
+    return [_tool_sequence(t, src=str(source)) for t in _parse_traces(source)]
+
+
+def _parse_traces(path: Path) -> List[dict]:
+    try:
+        raw = json.loads(Path(path).read_text())
+    except json.JSONDecodeError as e:
+        raise SnapshotFormatError(f"{path}: not valid JSON ({e})") from e
+    items = raw if isinstance(raw, list) else [raw]
+    for i, t in enumerate(items):
+        if not isinstance(t, dict) or not isinstance(t.get("steps"), list):
+            raise SnapshotFormatError(
+                f"{path}[{i}]: expected ExecutionTrace shape with a "
+                "'steps' list")
+    return items
+
+
+def _tool_sequence(trace: dict, src: str) -> Tuple[str, ...]:
+    seq = []
+    for j, step in enumerate(trace["steps"]):
+        tool = step.get("tool_name")
+        if not isinstance(tool, str):
+            raise SnapshotFormatError(
+                f"{src}: steps[{j}] missing tool_name")
+        seq.append(tool)
+    return tuple(seq)
+
+
 def list_snapshots(snapshot_dir: Path) -> List[Path]:
     """Timestamped snapshot files in a model dir, oldest first (no reference)."""
     snapshot_dir = Path(snapshot_dir)

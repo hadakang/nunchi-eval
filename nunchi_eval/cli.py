@@ -19,12 +19,14 @@ from .battery import (
     BatteryReport,
     compare_batteries,
 )
+from .traj import TRAJ_INSUFFICIENT, TrajVerdict, compare_trajectories
 from .adapters.evalview import (
     EvalViewSnapshot,
     SnapshotFormatError,
     SuiteMismatchError,
     load_reference_and_latest,
     load_snapshot,
+    load_trace_runs,
 )
 
 
@@ -96,6 +98,42 @@ def report_as_json(a: EvalViewSnapshot, b: EvalViewSnapshot,
     }, indent=2)
 
 
+def render_traj_report(v: TrajVerdict) -> str:
+    lines = [f"runs: A={v.n_a}  B={v.n_b}  steps analyzed: {len(v.steps)}", ""]
+    header = ["step", "majority A", "majority B", "flip A", "flip B",
+              "cross", "floor", ""]
+    rows = []
+    for s in v.steps:
+        ma = f"{s.majority_a[0]} ({s.majority_a[1]:.0%})" if s.majority_a else "-"
+        mb = f"{s.majority_b[0]} ({s.majority_b[1]:.0%})" if s.majority_b else "-"
+        rows.append([s.index, ma, mb, f"{s.flip_a:.2f}", f"{s.flip_b:.2f}",
+                     f"{s.cross:.2f}", f"{s.floor:.2f}",
+                     "<- hotspot" if s.hotspot else ""])
+    widths = [max(len(str(r[i])) for r in [header] + rows)
+              for i in range(len(header))]
+    lines.append(_fmt_row(header, widths))
+    lines.append(_fmt_row(["-" * w for w in widths], widths))
+    lines.extend(_fmt_row(r, widths) for r in rows)
+    lines.append("")
+    lines.append(v.summary())
+    return "\n".join(lines)
+
+
+def traj_report_as_json(v: TrajVerdict) -> str:
+    return json.dumps({
+        "n_a": v.n_a, "n_b": v.n_b,
+        "mean_cross": v.mean_cross, "floor": v.floor,
+        "p_value": v.p_value, "verdict": v.verdict,
+        "steps": [{
+            "step": s.index,
+            "majority_a": list(s.majority_a) if s.majority_a else None,
+            "majority_b": list(s.majority_b) if s.majority_b else None,
+            "flip_a": s.flip_a, "flip_b": s.flip_b,
+            "cross": s.cross, "floor": s.floor, "hotspot": s.hotspot,
+        } for s in v.steps],
+    }, indent=2)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="nunchi-eval",
@@ -115,7 +153,32 @@ def main(argv=None) -> int:
                        help="permutation test iterations (default 1000)")
     check.add_argument("--json", action="store_true", dest="as_json",
                        help="machine-readable JSON output")
+
+    traj = sub.add_parser(
+        "traj", help="Compare two trajectory populations (tool-call "
+                     "sequences) statistically.")
+    traj.add_argument("--a", type=Path, required=True,
+                      help="baseline runs: dir of ExecutionTrace *.json, "
+                           "or one file with a list of traces")
+    traj.add_argument("--b", type=Path, required=True,
+                      help="candidate runs: same formats as --a")
+    traj.add_argument("--alpha", type=float, default=0.05)
+    traj.add_argument("--n-perm", type=int, default=1000)
+    traj.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
+
+    if args.command == "traj":
+        try:
+            runs_a = load_trace_runs(args.a)
+            runs_b = load_trace_runs(args.b)
+        except (FileNotFoundError, SnapshotFormatError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        verdict = compare_trajectories(runs_a, runs_b, alpha=args.alpha,
+                                       n_perm=args.n_perm)
+        print((traj_report_as_json if args.as_json
+               else render_traj_report)(verdict))
+        return 1 if verdict.verdict == "REGRESSION" else 0
 
     try:
         if args.a and args.b:
