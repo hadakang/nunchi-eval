@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nunchi-eval"
-version = "0.1.0"
+version = "0.2.0"
 description = "Put p-values on snapshot diffs: statistical regression verdicts (noise floor + permutation tests) for agent snapshot tools. First adapter: EvalView."
 readme = "README.md"
 requires-python = ">=3.9"

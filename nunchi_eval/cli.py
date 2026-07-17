@@ -20,6 +20,7 @@ from .battery import (
     compare_batteries,
 )
 from .traj import TRAJ_INSUFFICIENT, TrajVerdict, compare_trajectories
+from .profile import ProfileVerdict, compare_profiles
 from .adapters.evalview import (
     EvalViewSnapshot,
     SnapshotFormatError,
@@ -119,8 +120,44 @@ def render_traj_report(v: TrajVerdict) -> str:
     return "\n".join(lines)
 
 
-def traj_report_as_json(v: TrajVerdict) -> str:
-    return json.dumps({
+def render_profile_report(v: ProfileVerdict) -> str:
+    lines = [f"runs: A={v.n_a}  B={v.n_b}  tools observed: {len(v.tools)}", ""]
+    header = ["tool", "majority calls A", "majority calls B",
+              "flip A", "flip B", "cross", "floor", ""]
+    rows = []
+    for t in v.tools:
+        ma = f"{t.majority_a[0]}x ({t.majority_a[1]:.0%})" if t.majority_a else "-"
+        mb = f"{t.majority_b[0]}x ({t.majority_b[1]:.0%})" if t.majority_b else "-"
+        rows.append([t.tool, ma, mb, f"{t.flip_a:.2f}", f"{t.flip_b:.2f}",
+                     f"{t.cross:.2f}", f"{t.floor:.2f}",
+                     "<- hotspot" if t.hotspot else ""])
+    widths = [max(len(str(r[i])) for r in [header] + rows)
+              for i in range(len(header))]
+    lines.append(_fmt_row(header, widths))
+    lines.append(_fmt_row(["-" * w for w in widths], widths))
+    lines.extend(_fmt_row(r, widths) for r in rows)
+    lines.append("")
+    lines.append(v.summary())
+    return "\n".join(lines)
+
+
+def profile_as_dict(v: ProfileVerdict) -> dict:
+    return {
+        "n_a": v.n_a, "n_b": v.n_b,
+        "mean_cross": v.mean_cross, "floor": v.floor,
+        "p_value": v.p_value, "verdict": v.verdict,
+        "tools": [{
+            "tool": t.tool,
+            "majority_a": list(t.majority_a) if t.majority_a else None,
+            "majority_b": list(t.majority_b) if t.majority_b else None,
+            "flip_a": t.flip_a, "flip_b": t.flip_b,
+            "cross": t.cross, "floor": t.floor, "hotspot": t.hotspot,
+        } for t in v.tools],
+    }
+
+
+def traj_as_dict(v: TrajVerdict) -> dict:
+    return {
         "n_a": v.n_a, "n_b": v.n_b,
         "mean_cross": v.mean_cross, "floor": v.floor,
         "p_value": v.p_value, "verdict": v.verdict,
@@ -131,7 +168,7 @@ def traj_report_as_json(v: TrajVerdict) -> str:
             "flip_a": s.flip_a, "flip_b": s.flip_b,
             "cross": s.cross, "floor": s.floor, "hotspot": s.hotspot,
         } for s in v.steps],
-    }, indent=2)
+    }
 
 
 def main(argv=None) -> int:
@@ -164,21 +201,52 @@ def main(argv=None) -> int:
                       help="candidate runs: same formats as --a")
     traj.add_argument("--alpha", type=float, default=0.05)
     traj.add_argument("--n-perm", type=int, default=1000)
+    traj.add_argument("--view", choices=["steps", "profile", "both"],
+                      default="both",
+                      help="position view (where it changed), order-blind "
+                           "tool profile view (what changed), or both "
+                           "(default: both — disagreement between views is "
+                           "itself a diagnostic)")
+    traj.add_argument("--param-keys", action="store_true",
+                      help="refine step categories to tool[key1,key2] using "
+                           "the parameter keys each call filled")
     traj.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args(argv)
 
     if args.command == "traj":
         try:
-            runs_a = load_trace_runs(args.a)
-            runs_b = load_trace_runs(args.b)
+            runs_a = load_trace_runs(args.a, include_param_keys=args.param_keys)
+            runs_b = load_trace_runs(args.b, include_param_keys=args.param_keys)
         except (FileNotFoundError, SnapshotFormatError) as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
-        verdict = compare_trajectories(runs_a, runs_b, alpha=args.alpha,
-                                       n_perm=args.n_perm)
-        print((traj_report_as_json if args.as_json
-               else render_traj_report)(verdict))
-        return 1 if verdict.verdict == "REGRESSION" else 0
+
+        verdicts = {}
+        if args.view in ("steps", "both"):
+            verdicts["steps"] = compare_trajectories(
+                runs_a, runs_b, alpha=args.alpha, n_perm=args.n_perm)
+        if args.view in ("profile", "both"):
+            verdicts["profile"] = compare_profiles(
+                runs_a, runs_b, alpha=args.alpha, n_perm=args.n_perm)
+
+        if args.as_json:
+            payload = {}
+            if "steps" in verdicts:
+                payload["steps"] = traj_as_dict(verdicts["steps"])
+            if "profile" in verdicts:
+                payload["profile"] = profile_as_dict(verdicts["profile"])
+            print(json.dumps(payload, indent=2))
+        else:
+            sections = []
+            if "steps" in verdicts:
+                sections.append("== position view (where) ==\n"
+                                + render_traj_report(verdicts["steps"]))
+            if "profile" in verdicts:
+                sections.append("== tool profile view (what, order-blind) ==\n"
+                                + render_profile_report(verdicts["profile"]))
+            print("\n\n".join(sections))
+        return 1 if any(v.verdict == "REGRESSION"
+                        for v in verdicts.values()) else 0
 
     try:
         if args.a and args.b:

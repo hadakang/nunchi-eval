@@ -151,5 +151,6 @@ class TestTrajCli:
         code = main(["traj", "--a", str(a), "--b", str(b), "--json"])
         payload = json.loads(capsys.readouterr().out)
         assert code == 0
-        assert payload["verdict"] == "WITHIN_NOISE"
-        assert len(payload["steps"]) == 3
+        assert payload["steps"]["verdict"] == "WITHIN_NOISE"
+        assert len(payload["steps"]["steps"]) == 3
+        assert payload["profile"]["verdict"] == "WITHIN_NOISE"

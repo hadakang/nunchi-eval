@@ -97,12 +97,19 @@ def load_snapshot(path: Path) -> EvalViewSnapshot:
     )
 
 
-def load_trace_runs(source: Path) -> List[Tuple[str, ...]]:
+def load_trace_runs(source: Path,
+                    include_param_keys: bool = False) -> List[Tuple[str, ...]]:
     """Load trajectory runs (tool-name sequences) from ExecutionTrace JSONs.
 
     ``source`` is either a directory (every ``*.json`` inside = one run,
     sorted by filename) or a single file containing one ExecutionTrace
     object or a list of them. Only ``steps[].tool_name`` is used.
+
+    ``include_param_keys=True`` refines each step category from the tool
+    name to ``tool[key1,key2]`` — the sorted set of parameter keys the
+    agent filled. This catches "same tool, different call shape"
+    regressions while staying a finite category (keys are bounded by the
+    tool schema; raw values would explode cardinality).
     """
     source = Path(source)
     if source.is_dir():
@@ -112,8 +119,10 @@ def load_trace_runs(source: Path) -> List[Tuple[str, ...]]:
         raw_traces = []
         for f in files:
             raw_traces.extend(_parse_traces(f))
-        return [_tool_sequence(t, src=str(source)) for t in raw_traces]
-    return [_tool_sequence(t, src=str(source)) for t in _parse_traces(source)]
+        return [_tool_sequence(t, str(source), include_param_keys)
+                for t in raw_traces]
+    return [_tool_sequence(t, str(source), include_param_keys)
+            for t in _parse_traces(source)]
 
 
 def _parse_traces(path: Path) -> List[dict]:
@@ -130,13 +139,18 @@ def _parse_traces(path: Path) -> List[dict]:
     return items
 
 
-def _tool_sequence(trace: dict, src: str) -> Tuple[str, ...]:
+def _tool_sequence(trace: dict, src: str,
+                   include_param_keys: bool = False) -> Tuple[str, ...]:
     seq = []
     for j, step in enumerate(trace["steps"]):
         tool = step.get("tool_name")
         if not isinstance(tool, str):
             raise SnapshotFormatError(
                 f"{src}: steps[{j}] missing tool_name")
+        if include_param_keys:
+            params = step.get("parameters")
+            keys = sorted(params) if isinstance(params, dict) else []
+            tool = f"{tool}[{','.join(keys)}]"
         seq.append(tool)
     return tuple(seq)
 

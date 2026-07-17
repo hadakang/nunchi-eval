@@ -30,6 +30,17 @@ from .traj import (
     per_step_flip_rates,
     permutation_test_trajectories,
 )
+from .profile import (
+    PROFILE_INSUFFICIENT,
+    PROFILE_REGRESSION,
+    PROFILE_WITHIN_NOISE,
+    ProfileVerdict,
+    ToolDetail,
+    compare_profiles,
+    per_tool_flip_rates,
+    permutation_test_profiles,
+    tool_counts,
+)
 from .adapters.evalview import (
     EvalViewSnapshot,
     SnapshotFormatError,
@@ -40,7 +51,7 @@ from .adapters.evalview import (
     load_trace_runs,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "PromptRuns", "PromptVerdict", "BatteryReport",
@@ -54,5 +65,8 @@ __all__ = [
     "mean_step_disagreement", "permutation_test_trajectories",
     "compare_trajectories",
     "TRAJ_REGRESSION", "TRAJ_WITHIN_NOISE", "TRAJ_INSUFFICIENT",
+    "ToolDetail", "ProfileVerdict", "tool_counts",
+    "per_tool_flip_rates", "permutation_test_profiles", "compare_profiles",
+    "PROFILE_REGRESSION", "PROFILE_WITHIN_NOISE", "PROFILE_INSUFFICIENT",
     "__version__",
 ]

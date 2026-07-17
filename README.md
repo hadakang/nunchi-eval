@@ -60,7 +60,45 @@ for v in report.verdicts:
 ```
 
 The battery math is tool-agnostic — any per-prompt `List[bool]` works.
-Adapters for other snapshot formats (trajectory-level statistics with
-step alignment) are the roadmap.
+
+## Trajectory statistics (`nunchi-eval traj`)
+
+Compare two populations of agent runs (ExecutionTrace JSONs) through two
+complementary views, both noise-floor gated:
+
+- **position view** — "what did the agent do at step i" (*where* it changed)
+- **tool profile view** — "how many times did each tool get called",
+  order-blind (*what* changed; immune to parallel-call ordering noise)
+
+```bash
+nunchi-eval traj --a baseline_runs/ --b candidate_runs/          # both views
+nunchi-eval traj --a a.json --b b.json --view profile            # one view
+nunchi-eval traj --a a.json --b b.json --param-keys              # see below
+```
+
+```
+== position view (where) ==
+step  majority A     majority B       cross  floor
+3     verify (100%)  answer (70%)     1.00   0.47   <- hotspot
+4     answer (100%)  <absent> (100%)  1.00   0.00   <- hotspot
+trajectories: mean cross=0.575 > floor=0.233, p=0.001 -> REGRESSION
+
+== tool profile view (what, order-blind) ==
+tool    majority calls A  majority calls B  cross  floor
+verify  1x (100%)         0x (100%)         1.00   0.00   <- hotspot
+tool profile: mean cross=0.281 > floor=0.094, p=0.001 -> REGRESSION, hotspot tools: ['verify']
+```
+
+When the views disagree, that's a diagnosis, not a bug: position=REGRESSION
+with profile=WITHIN_NOISE means the agent calls the same tools in a
+different order.
+
+`--param-keys` refines step categories from `search` to
+`search[limit,query]` — the set of parameter keys each call filled. This
+catches "same tool, same verdict, different call shape" regressions while
+keeping categories finite (raw parameter values would explode cardinality).
+
+Alignment is position-based with an `<absent>` sentinel: a trajectory that
+got shorter *is* a behavioral change, not something to align away.
 
 MIT license.
