@@ -111,6 +111,18 @@ class TestPairSelection:
         with pytest.raises(SuiteMismatchError):
             load_reference_and_latest(tmp_path)
 
+    def test_stray_json_is_not_latest(self, tmp_path):
+        # A non-timestamped file in the dir (notes, a changed-condition
+        # snapshot, whatever) must never be silently picked as "latest".
+        write(tmp_path / "reference.json",
+              make_snapshot({"p1": [True] * 10}, is_reference=True))
+        write(tmp_path / "2026-07-17T00-00-00.000000Z.json",
+              make_snapshot({"p1": [True] * 10}))
+        write(tmp_path / "changed.json",
+              make_snapshot({"p1": [False] * 10}))
+        a, b = load_reference_and_latest(tmp_path)
+        assert b.path.name.startswith("2026-07-17")
+
     def test_single_file_errors(self, tmp_path):
         write(tmp_path / "2026-07-17T00-00-00.000000Z.json",
               make_snapshot({"p1": [True] * 10}))
